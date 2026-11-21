@@ -188,7 +188,7 @@
 #define JPIT1		0x00
 #define JPIT2		0x02
 #define JPIT3		0x04
-#define JPIT4		0x08
+#define JPIT4		0x06
 #define CLK1		0x10
 #define CLK2		0x12
 #define CLK3		0x14
@@ -293,7 +293,7 @@ void JERRYResetPIT2(void)
 {
 	RemoveCallback(JERRYPIT2Callback);
 
-	if (JERRYPIT1Prescaler | JERRYPIT1Divider)
+	if (JERRYPIT2Prescaler | JERRYPIT2Divider)
 	{
 		double usecs = (float)(JERRYPIT2Prescaler + 1) * (float)(JERRYPIT2Divider + 1) * RISC_CYCLE_IN_USEC;
 		SetCallbackTime(JERRYPIT2Callback, usecs, EVENT_JERRY);
@@ -341,6 +341,48 @@ void JERRYPIT2Callback(void)
 
 	DSPSetIRQLine(DSPIRQ_TIMER1, ASSERT_LINE);	// This does the 'IRQ enabled' checking...
 	JERRYResetPIT2();
+}
+
+
+//
+// The live timer counters at $F10036-$F1003D (JPIT1-4 read). Each timer
+// counts its prescaler down from the programmed value once per system
+// clock; when the prescaler passes zero it reloads and the divider counts
+// down by one, and the timer fires when both pass zero. So the counters
+// follow from how far through its period the timer's callback is.
+//
+static uint16_t JERRYReadPITCounter(uint32_t offset, uint32_t who)
+{
+	uint32_t reg = ((offset - 0xF10036) >> 1) & 0x03;	// 0-3 = JPIT1-4
+	bool timer2 = (reg >= 2);
+	bool readPrescaler = !(reg & 1);
+	uint32_t prescaler = (timer2 ? JERRYPIT2Prescaler : JERRYPIT1Prescaler);
+	uint32_t divider = (timer2 ? JERRYPIT2Divider : JERRYPIT1Divider);
+	double left = GetCallbackTime(timer2 ? JERRYPIT2Callback : JERRYPIT1Callback);
+
+	if (left < 0)								// stopped: counters hold
+		return (readPrescaler ? prescaler : divider);
+
+	// Event times only move between execution slices. Take off how far the
+	// reading processor has got into the current one, or every read in a
+	// slice would see the same count.
+	left -= JaguarSliceTime(who);
+
+	if (left < 0)
+		left = 0;
+
+	uint64_t period = (uint64_t)(prescaler + 1) * (uint64_t)(divider + 1);
+	uint64_t leftCycles = (uint64_t)(left / RISC_CYCLE_IN_USEC);
+
+	if (leftCycles >= period)
+		leftCycles = period - 1;
+
+	uint64_t elapsed = period - 1 - leftCycles;
+
+	if (readPrescaler)
+		return (uint16_t)(prescaler - elapsed % (prescaler + 1));
+
+	return (uint16_t)(divider - elapsed / (prescaler + 1));
 }
 
 
@@ -520,7 +562,8 @@ uint8_t JERRYReadByte(uint32_t offset, uint32_t who/*=UNKNOWN*/)
 //under the new system... !!! FIX !!!
 	else if ((offset >= 0xF10036) && (offset <= 0xF1003D))
 	{
-WriteLog("JERRY: Unhandled timer read (BYTE) at %08X...\n", offset);
+		uint16_t value = JERRYReadPITCounter(offset & ~1, who);
+		return (offset & 0x01 ? value & 0xFF : value >> 8);
 	}
 //	else if (offset >= 0xF10010 && offset <= 0xF10015)
 //		return clock_byte_read(offset);
@@ -571,9 +614,7 @@ uint16_t JERRYReadWord(uint32_t offset, uint32_t who/*=UNKNOWN*/)
 //This is still wrong. What needs to be returned here are the values being counted down
 //in the jerry_timer_n_counter variables... !!! FIX !!! [DONE]
 	else if ((offset >= 0xF10036) && (offset <= 0xF1003D))
-	{
-WriteLog("JERRY: Unhandled timer read (WORD) at %08X...\n", offset);
-	}
+		return JERRYReadPITCounter(offset, who);
 //	else if ((offset >= 0xF10010) && (offset <= 0xF10015))
 //		return clock_word_read(offset);
 	else if (offset == 0xF10020)

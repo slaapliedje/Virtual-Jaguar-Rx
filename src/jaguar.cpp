@@ -2834,8 +2834,32 @@ uint8_t * GetRamPtr(void)
 // This executes 1 frame's worth of code.
 //
 // Cycles each processor still owes (> 0) or has run ahead (< 0) of the
-// event clock, carried between slices
+// event clock, carried between slices, and their values when the current
+// slice began.
 static double m68kOwed = 0, gpuOwed = 0, dspOwed = 0;
+static double m68kAtStart = 0, gpuAtStart = 0, dspAtStart = 0;
+static uint32_t gpuRunAtStart = 0, dspRunAtStart = 0;
+
+//
+// How far (usec) the given processor has got past the start of the current
+// execution slice: event times only move between slices, so anything read
+// mid-slice (the JERRY timers) adds this to stay in step with that processor.
+//
+double JaguarSliceTime(uint32_t who)
+{
+	if (who == M68K)
+		return ((double)m68k_cycles_run() - m68kAtStart) * (vjs.hardwareTypeNTSC ? M68K_CYCLE_IN_USEC : M68K_CYCLE_PAL_IN_USEC);
+
+	const double riscUsec = (vjs.hardwareTypeNTSC ? RISC_CYCLE_IN_USEC : RISC_CYCLE_PAL_IN_USEC);
+
+	if (who == DSP)
+		return ((double)(DSPCyclesRun() - dspRunAtStart) - dspAtStart) * riscUsec;
+
+	if (who == GPU)
+		return ((double)(GPUCyclesRun() - gpuRunAtStart) - gpuAtStart) * riscUsec;
+
+	return 0;
+}
 
 
 void JaguarExecuteNew(void)
@@ -2862,6 +2886,7 @@ void JaguarExecuteNew(void)
 		if (timeToNextEvent > 0)
 		{
 			// Owed < 0: that processor overran the last slice and is ahead
+			m68kAtStart = m68kOwed;
 			m68kOwed += timeToNextEvent / m68kUsec;
 
 			if (m68kOwed >= 1.0)
@@ -2869,14 +2894,15 @@ void JaguarExecuteNew(void)
 
 			if (vjs.GPUEnabled)
 			{
+				gpuAtStart = gpuOwed;
 				gpuOwed += timeToNextEvent / riscUsec;
 				int32_t n = (int32_t)gpuOwed;
 
 				if (n > 0)
 				{
-					uint32_t runAtStart = GPUCyclesRun();
+					gpuRunAtStart = GPUCyclesRun();
 					GPUExec(n);
-					int32_t ran = (int32_t)(GPUCyclesRun() - runAtStart);
+					int32_t ran = (int32_t)(GPUCyclesRun() - gpuRunAtStart);
 					// a halted GPU doesn't bank the time it didn't use
 					gpuOwed -= (ran < n ? n : ran);
 				}
@@ -2884,19 +2910,20 @@ void JaguarExecuteNew(void)
 
 			if (vjs.DSPEnabled)
 			{
+				dspAtStart = dspOwed;
 				dspOwed += timeToNextEvent / riscUsec;
 				int32_t n = (int32_t)dspOwed;
 
 				if (n > 0)
 				{
-					uint32_t runAtStart = DSPCyclesRun();
+					dspRunAtStart = DSPCyclesRun();
 
 					if (vjs.usePipelinedDSP)
 						DSPExecP2(n);
 					else
 						DSPExec(n);
 
-					int32_t ran = (int32_t)(DSPCyclesRun() - runAtStart);
+					int32_t ran = (int32_t)(DSPCyclesRun() - dspRunAtStart);
 					dspOwed -= (ran < n ? n : ran);
 				}
 			}

@@ -46,6 +46,7 @@ extern bool JaguarInterruptHandlerIsValid(uint32_t i);
 extern void JaguarDasm(uint32_t offset, uint32_t qt);
 // Execution emulation control
 extern void JaguarExecuteNew(void);
+double JaguarSliceTime(uint32_t who);
 extern int JaguarStepInto(void);
 extern int JaguarStepOver(int depth);
 

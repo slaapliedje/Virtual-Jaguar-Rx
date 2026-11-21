@@ -338,6 +338,23 @@ void AdjustCallbackTime(void (* callback)(void), double time)
 
 
 //
+// Time left before a callback fires, or -1 if it isn't scheduled
+//
+double GetCallbackTime(void (* callback)(void))
+{
+	for(uint32_t i=0; i<EVENT_LIST_SIZE; i++)
+	{
+		if (eventList[i].valid && eventList[i].timerCallback == callback)
+			return eventList[i].eventTime;
+		else if (eventListJERRY[i].valid && eventListJERRY[i].timerCallback == callback)
+			return eventListJERRY[i].eventTime;
+	}
+
+	return -1.0;
+}
+
+
+//
 // Since our list is unordered WRT time, we have to search it to find the next event
 // Returns time to next event & sets nextEvent to that event
 //

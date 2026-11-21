@@ -133,7 +133,7 @@ extern unsigned int m68k_disassemble(char * str_buff, unsigned int pc, unsigned 
  * These are useful if the 68k accesses a memory-mapped port on another device
  * that requires immediate processing by another CPU.
  */
-//int m68k_cycles_run(void);              // Number of cycles run so far
+int m68k_cycles_run(void);               // Number of cycles run so far
 //int m68k_cycles_remaining(void);        // Number of cycles left
 extern void m68k_modify_timeslice(int cycles); // Modify cycles left
 extern void m68k_end_timeslice(void);          // End timeslice now
